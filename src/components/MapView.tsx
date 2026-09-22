@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import type { GpsPoint } from '../types/run'
 
@@ -44,6 +44,10 @@ const MAP_STYLE: maplibregl.StyleSpecification = {
 
 interface MapViewProps {
   points: GpsPoint[]
+  /** Live GPS fix for the pulsing “you are here” marker (live run only). */
+  liveFix?: GpsPoint | null
+  /** Use HTML pulse marker instead of a static circle end-point. */
+  liveMarker?: boolean
   interactive?: boolean
   fitPadding?: number
   className?: string
@@ -53,6 +57,8 @@ interface MapViewProps {
 
 export function MapView({
   points,
+  liveFix = null,
+  liveMarker = false,
   interactive = false,
   fitPadding = 40,
   className,
@@ -60,10 +66,17 @@ export function MapView({
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const markerRef = useRef<maplibregl.Marker | null>(null)
   const readyRef = useRef(false)
   const lastFitCountRef = useRef(0)
   const pointsRef = useRef(points)
+  const liveFixRef = useRef(liveFix)
+  const followRef = useRef(follow)
+  const fitPaddingRef = useRef(fitPadding)
   pointsRef.current = points
+  liveFixRef.current = liveFix
+  followRef.current = follow
+  fitPaddingRef.current = fitPadding
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -102,24 +115,35 @@ export function MapView({
         },
       })
 
-      map.addSource(POINT_SOURCE, {
-        type: 'geojson',
-        data: emptyPoint(),
-      })
-      map.addLayer({
-        id: POINT_LAYER,
-        type: 'circle',
-        source: POINT_SOURCE,
-        paint: {
-          'circle-radius': 7,
-          'circle-color': '#1B7A4E',
-          'circle-stroke-width': 3,
-          'circle-stroke-color': '#ffffff',
-        },
-      })
+      if (!liveMarker) {
+        map.addSource(POINT_SOURCE, {
+          type: 'geojson',
+          data: emptyPoint(),
+        })
+        map.addLayer({
+          id: POINT_LAYER,
+          type: 'circle',
+          source: POINT_SOURCE,
+          paint: {
+            'circle-radius': 7,
+            'circle-color': '#1B7A4E',
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff',
+          },
+        })
+      }
 
       readyRef.current = true
-      updateGeometry(map, pointsRef.current, follow, fitPadding, true)
+      updateGeometry(
+        map,
+        markerRef,
+        pointsRef.current,
+        liveFixRef.current,
+        followRef.current,
+        fitPaddingRef.current,
+        true,
+        liveMarker,
+      )
       lastFitCountRef.current = pointsRef.current.length
     })
 
@@ -132,10 +156,12 @@ export function MapView({
     return () => {
       cancelAnimationFrame(resizeFrame)
       readyRef.current = false
+      markerRef.current?.remove()
+      markerRef.current = null
       map.remove()
       mapRef.current = null
     }
-  }, [interactive, follow, fitPadding])
+  }, [interactive, liveMarker])
 
   useEffect(() => {
     const map = mapRef.current
@@ -143,18 +169,28 @@ export function MapView({
 
     const shouldFit =
       points.length === 1 ||
+      (Boolean(liveFix) && points.length === 0) ||
       points.length - lastFitCountRef.current >= 8 ||
       (!follow && points.length !== lastFitCountRef.current)
 
     if (!readyRef.current) {
-      recenterMap(map, points, follow, fitPadding, shouldFit)
-      if (shouldFit) lastFitCountRef.current = points.length
+      recenterMap(map, points, liveFix, follow, fitPadding, shouldFit)
+      if (shouldFit) lastFitCountRef.current = Math.max(points.length, liveFix ? 1 : 0)
       return
     }
 
-    updateGeometry(map, points, follow, fitPadding, shouldFit)
-    if (shouldFit) lastFitCountRef.current = points.length
-  }, [points, follow, fitPadding])
+    updateGeometry(
+      map,
+      markerRef,
+      points,
+      liveFix,
+      follow,
+      fitPadding,
+      shouldFit,
+      liveMarker,
+    )
+    if (shouldFit) lastFitCountRef.current = Math.max(points.length, liveFix ? 1 : 0)
+  }, [points, liveFix, follow, fitPadding, liveMarker])
 
   return (
     <div
@@ -182,16 +218,45 @@ function emptyPoint(): PointFeature {
   }
 }
 
+function createPulseMarkerElement(): HTMLDivElement {
+  const el = document.createElement('div')
+  el.className = 'live-location-marker'
+  el.setAttribute('aria-hidden', 'true')
+  el.innerHTML =
+    '<span class="live-location-pulse"></span><span class="live-location-dot"></span>'
+  return el
+}
+
+function ensurePulseMarker(
+  map: maplibregl.Map,
+  markerRef: MutableRefObject<maplibregl.Marker | null>,
+  lng: number,
+  lat: number,
+) {
+  if (markerRef.current) {
+    markerRef.current.setLngLat([lng, lat])
+    return
+  }
+  markerRef.current = new maplibregl.Marker({
+    element: createPulseMarkerElement(),
+    anchor: 'center',
+  })
+    .setLngLat([lng, lat])
+    .addTo(map)
+}
+
 function updateGeometry(
   map: maplibregl.Map,
+  markerRef: MutableRefObject<maplibregl.Marker | null>,
   points: GpsPoint[],
+  liveFix: GpsPoint | null,
   follow: boolean,
   fitPadding: number,
   fit: boolean,
+  liveMarker: boolean,
 ) {
   const routeSource = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined
-  const pointSource = map.getSource(POINT_SOURCE) as maplibregl.GeoJSONSource | undefined
-  if (!routeSource || !pointSource) return
+  if (!routeSource) return
 
   const coordinates = points.map(
     (p) => [p.longitude, p.latitude] as [number, number],
@@ -206,24 +271,35 @@ function updateGeometry(
     },
   })
 
-  if (coordinates.length === 0) {
-    pointSource.setData(emptyPoint())
-    return
+  if (liveMarker) {
+    if (liveFix) {
+      ensurePulseMarker(map, markerRef, liveFix.longitude, liveFix.latitude)
+    }
+  } else {
+    const pointSource = map.getSource(POINT_SOURCE) as maplibregl.GeoJSONSource | undefined
+    if (!pointSource) return
+
+    if (coordinates.length === 0) {
+      pointSource.setData(emptyPoint())
+      recenterMap(map, points, liveFix, follow, fitPadding, fit)
+      return
+    }
+
+    const last = coordinates[coordinates.length - 1]
+    pointSource.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Point', coordinates: last },
+    })
   }
 
-  const last = coordinates[coordinates.length - 1]
-  pointSource.setData({
-    type: 'Feature',
-    properties: {},
-    geometry: { type: 'Point', coordinates: last },
-  })
-
-  recenterMap(map, points, follow, fitPadding, fit)
+  recenterMap(map, points, liveFix, follow, fitPadding, fit)
 }
 
 function recenterMap(
   map: maplibregl.Map,
   points: GpsPoint[],
+  liveFix: GpsPoint | null,
   follow: boolean,
   fitPadding: number,
   fit: boolean,
@@ -231,16 +307,22 @@ function recenterMap(
   const coordinates = points.map(
     (p) => [p.longitude, p.latitude] as [number, number],
   )
-  if (coordinates.length === 0) return
-  const last = coordinates[coordinates.length - 1]
+
+  const followTarget: [number, number] | null = liveFix
+    ? [liveFix.longitude, liveFix.latitude]
+    : coordinates.length > 0
+      ? coordinates[coordinates.length - 1]
+      : null
+
+  if (!followTarget) return
 
   if (!fit) {
-    if (follow) map.easeTo({ center: last, duration: 300 })
+    if (follow) map.easeTo({ center: followTarget, duration: 300 })
     return
   }
 
-  if (coordinates.length === 1) {
-    map.easeTo({ center: last, zoom: 16, duration: 400 })
+  if (coordinates.length <= 1) {
+    map.easeTo({ center: followTarget, zoom: 16, duration: 400 })
     return
   }
 
@@ -248,5 +330,6 @@ function recenterMap(
     (b, c) => b.extend(c),
     new maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
   )
+  if (liveFix) bounds.extend([liveFix.longitude, liveFix.latitude])
   map.fitBounds(bounds, { padding: fitPadding, maxZoom: 17, duration: 400 })
 }

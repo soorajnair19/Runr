@@ -4,7 +4,6 @@ import type { RunSummary } from '../types/run'
 import {
   formatDistanceNumber,
   formatDuration,
-  formatPaceShort,
   formatRunDate,
   formatRunTime,
   runTitleFromStart,
@@ -24,12 +23,15 @@ export function RunCard({ summary }: RunCardProps) {
   const [scale, setScale] = useState(0.3)
   const [downloading, setDownloading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [pngReady, setPngReady] = useState(false)
   const [downloadHint, setDownloadHint] = useState(false)
+  const [hintMessage, setHintMessage] = useState(
+    'Long press the image below to save it to your photos.',
+  )
 
   const title = runTitleFromStart(summary.startTime)
   const distance = formatDistanceNumber(summary.distanceMeters)
   const duration = formatDuration(summary.elapsedMs)
-  const pace = formatPaceShort(summary.averagePaceSecPerKm)
   const date = formatRunDate(summary.startTime)
   const time = formatRunTime(summary.startTime)
 
@@ -46,34 +48,105 @@ export function RunCard({ summary }: RunCardProps) {
     return () => observer.disconnect()
   }, [])
 
+  // Pre-render PNG when the card appears so Download Now is instant.
+  useEffect(() => {
+    let cancelled = false
+    setPngReady(false)
+    setPreviewUrl(null)
+    setDownloadHint(false)
+
+    async function renderPng() {
+      if (!cardRef.current) return
+      try {
+        // Wait a frame so fonts/layout settle before capture.
+        await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+        const dataUrl = await toPng(cardRef.current, {
+          width: CARD_W,
+          height: CARD_H,
+          pixelRatio: 1,
+          cacheBust: true,
+          style: {
+            transform: 'none',
+            width: `${CARD_W}px`,
+            height: `${CARD_H}px`,
+          },
+        })
+        if (!cancelled) {
+          setPreviewUrl(dataUrl)
+          setPngReady(true)
+        }
+      } catch {
+        if (!cancelled) {
+          setPngReady(false)
+        }
+      }
+    }
+
+    void renderPng()
+    return () => {
+      cancelled = true
+    }
+  }, [summary])
+
   async function handleDownload() {
-    if (!cardRef.current || downloading) return
+    if (downloading) return
     setDownloading(true)
     setDownloadHint(false)
 
     try {
-      const dataUrl = await toPng(cardRef.current, {
-        width: CARD_W,
-        height: CARD_H,
-        pixelRatio: 1,
-        cacheBust: true,
-        style: {
-          transform: 'none',
-          width: `${CARD_W}px`,
-          height: `${CARD_H}px`,
-        },
+      let dataUrl = previewUrl
+      if (!dataUrl && cardRef.current) {
+        dataUrl = await toPng(cardRef.current, {
+          width: CARD_W,
+          height: CARD_H,
+          pixelRatio: 1,
+          cacheBust: true,
+          style: {
+            transform: 'none',
+            width: `${CARD_W}px`,
+            height: `${CARD_H}px`,
+          },
+        })
+        setPreviewUrl(dataUrl)
+        setPngReady(true)
+      }
+      if (!dataUrl) throw new Error('Could not render card')
+
+      const blob = await (await fetch(dataUrl)).blob()
+      const file = new File([blob], `runr-${Date.now()}.png`, {
+        type: 'image/png',
       })
 
-      setPreviewUrl(dataUrl)
+      const canShareFile =
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+
+      if (canShareFile) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Runr run card',
+          })
+          return
+        } catch (err) {
+          // User cancelled share — do not fall through to download noise.
+          if (err instanceof DOMException && err.name === 'AbortError') return
+        }
+      }
 
       const link = document.createElement('a')
-      link.download = `runr-${Date.now()}.png`
+      link.download = file.name
       link.href = dataUrl
       link.click()
 
       const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
-      if (isIos) setDownloadHint(true)
+      if (isIos || !canShareFile) {
+        setHintMessage('Long press the image below to save it to your photos.')
+        setDownloadHint(true)
+      }
     } catch {
+      setHintMessage('Long press the image below to save it to your photos.')
       setDownloadHint(true)
     } finally {
       setDownloading(false)
@@ -101,15 +174,15 @@ export function RunCard({ summary }: RunCardProps) {
 
           <div className="run-card-stats">
             <div>
-              <span className="run-card-stat-label">DURATION</span>
-              <span className="run-card-stat-value">{duration}</span>
+              <span className="run-card-stat-label">DISTANCE</span>
+              <span className="run-card-stat-value">
+                {distance}
+                <span className="run-card-stat-unit">KM</span>
+              </span>
             </div>
             <div>
-              <span className="run-card-stat-label">PACE</span>
-              <span className="run-card-stat-value">
-                {pace}
-                <span className="run-card-stat-unit">/KM</span>
-              </span>
+              <span className="run-card-stat-label">TIME</span>
+              <span className="run-card-stat-value">{duration}</span>
             </div>
           </div>
 
@@ -124,15 +197,15 @@ export function RunCard({ summary }: RunCardProps) {
         type="button"
         className="btn btn-primary btn-block"
         onClick={handleDownload}
-        disabled={downloading}
+        disabled={downloading || !pngReady}
         aria-label="Download run card"
       >
-        {downloading ? 'GENERATING…' : 'DOWNLOAD RUN CARD'}
+        {downloading ? 'SAVING…' : !pngReady ? 'PREPARING…' : 'DOWNLOAD NOW'}
       </button>
 
       {downloadHint && previewUrl && (
         <div className="download-fallback">
-          <p>Long press the image below to save it to your photos.</p>
+          <p>{hintMessage}</p>
           <img src={previewUrl} alt="Your run card" className="download-preview" />
         </div>
       )}

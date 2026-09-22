@@ -43,6 +43,7 @@ export default function App() {
           elapsedMs={session.elapsedMs}
           pace={pace}
           points={session.gpsPoints}
+          liveFix={session.liveFix}
           waitingForGps={session.waitingForGps}
           accuracyWarning={session.accuracyWarning}
           onPause={tracker.pauseRun}

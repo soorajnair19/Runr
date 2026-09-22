@@ -22,6 +22,7 @@ const initialSession = (): RunSession => ({
   elapsedMs: 0,
   distanceMeters: 0,
   gpsPoints: [],
+  liveFix: null,
   errorKind: null,
   errorMessage: null,
   accuracyWarning: false,
@@ -83,12 +84,16 @@ export function useRunTracker() {
       const point = positionToGpsPoint(position)
       const poorAccuracy = point.accuracy > GPS_CONFIG.maxAccuracyMeters
 
+      // Update live marker for any accurate fix, even if route rejects it as jitter.
+      const liveFixPatch = poorAccuracy ? {} : { liveFix: point }
+
       const result = filterGpsPoint(lastAcceptedRef.current, point, {
         segmentBreak: segmentBreakRef.current,
       })
 
       if (!result.accept) {
         pushSession({
+          ...liveFixPatch,
           waitingForGps: status === 'STARTING',
           accuracyWarning: poorAccuracy || result.reason === 'accuracy',
         })
@@ -112,6 +117,7 @@ export function useRunTracker() {
           startTimeRef.current = Date.now()
         }
         pushSession({
+          ...liveFixPatch,
           status: 'RUNNING',
           startTime: startTimeRef.current,
           waitingForGps: false,
@@ -123,6 +129,7 @@ export function useRunTracker() {
       }
 
       pushSession({
+        ...liveFixPatch,
         waitingForGps: false,
         accuracyWarning: poorAccuracy,
       })
@@ -195,6 +202,7 @@ export function useRunTracker() {
       elapsedMs: 0,
       distanceMeters: 0,
       gpsPoints: [],
+      liveFix: null,
       errorKind: null,
       errorMessage: null,
       accuracyWarning: false,

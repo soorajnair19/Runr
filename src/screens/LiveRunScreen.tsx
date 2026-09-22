@@ -12,6 +12,7 @@ interface LiveRunScreenProps {
   elapsedMs: number
   pace: number | null
   points: GpsPoint[]
+  liveFix: GpsPoint | null
   waitingForGps: boolean
   accuracyWarning: boolean
   onPause: () => void
@@ -25,6 +26,7 @@ export function LiveRunScreen({
   elapsedMs,
   pace,
   points,
+  liveFix,
   waitingForGps,
   accuracyWarning,
   onPause,
@@ -64,7 +66,13 @@ export function LiveRunScreen({
       )}
 
       <div className="live-map-wrap">
-        <MapView points={points} follow={!paused} className="live-map" />
+        <MapView
+          points={points}
+          liveFix={liveFix}
+          liveMarker
+          follow={!paused}
+          className="live-map"
+        />
       </div>
 
       <div className="live-controls">

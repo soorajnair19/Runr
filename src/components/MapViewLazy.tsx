@@ -7,6 +7,8 @@ const MapViewInner = lazy(() =>
 
 interface MapViewLazyProps {
   points: GpsPoint[]
+  liveFix?: GpsPoint | null
+  liveMarker?: boolean
   interactive?: boolean
   fitPadding?: number
   className?: string

@@ -32,6 +32,8 @@ export interface RunSession {
   elapsedMs: number
   distanceMeters: number
   gpsPoints: GpsPoint[]
+  /** Latest accurate GPS fix for the live map marker (may include jitter-rejected points). */
+  liveFix: GpsPoint | null
   errorKind: GpsErrorKind | null
   errorMessage: string | null
   accuracyWarning: boolean

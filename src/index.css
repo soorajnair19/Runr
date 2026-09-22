@@ -265,6 +265,46 @@ button {
   inset: 0;
 }
 
+/* Pulsing “you are here” marker on the live map */
+.live-location-marker {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+.live-location-dot {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: #1b7a4e;
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 26, 20, 0.35);
+}
+
+.live-location-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(27, 122, 78, 0.35);
+  animation: live-pulse 1.6s ease-out infinite;
+}
+
+@keyframes live-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.85;
+  }
+  70% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+
 .map-view,
 .summary-map,
 .run-card-map {
