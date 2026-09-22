@@ -125,7 +125,12 @@ export function MapView({
 
     mapRef.current = map
 
+    const resizeFrame = requestAnimationFrame(() => {
+      map.resize()
+    })
+
     return () => {
+      cancelAnimationFrame(resizeFrame)
       readyRef.current = false
       map.remove()
       mapRef.current = null
