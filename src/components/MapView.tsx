@@ -4,6 +4,10 @@ import type { GpsPoint } from '../types/run'
 
 const ROUTE_SOURCE = 'run-route'
 const ROUTE_LAYER = 'run-route-line'
+const PREVIEW_SOURCE = 'run-preview'
+const PREVIEW_LAYER = 'run-preview-line'
+const BREADCRUMB_SOURCE = 'run-breadcrumbs'
+const BREADCRUMB_LAYER = 'run-breadcrumb-circles'
 const POINT_SOURCE = 'run-point'
 const POINT_LAYER = 'run-point-circle'
 
@@ -17,6 +21,12 @@ type PointFeature = {
   type: 'Feature'
   properties: Record<string, never>
   geometry: { type: 'Point'; coordinates: [number, number] }
+}
+
+type MultiPointFeature = {
+  type: 'Feature'
+  properties: Record<string, never>
+  geometry: { type: 'MultiPoint'; coordinates: [number, number][] }
 }
 
 const MAP_STYLE: maplibregl.StyleSpecification = {
@@ -110,8 +120,47 @@ export function MapView({
         },
         paint: {
           'line-color': '#1B7A4E',
-          'line-width': 4,
-          'line-opacity': 0.9,
+          'line-width': 4.5,
+          'line-opacity': 0.95,
+        },
+      })
+
+      // Live preview: last accepted point → current live fix (visual only).
+      map.addSource(PREVIEW_SOURCE, {
+        type: 'geojson',
+        data: emptyLine(),
+      })
+      map.addLayer({
+        id: PREVIEW_LAYER,
+        type: 'line',
+        source: PREVIEW_SOURCE,
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#1B7A4E',
+          'line-width': 3.5,
+          'line-opacity': 0.55,
+          'line-dasharray': [1.5, 1.5],
+        },
+      })
+
+      // Breadcrumb dots so the trail is visible even with few accepted points.
+      map.addSource(BREADCRUMB_SOURCE, {
+        type: 'geojson',
+        data: emptyMultiPoint(),
+      })
+      map.addLayer({
+        id: BREADCRUMB_LAYER,
+        type: 'circle',
+        source: BREADCRUMB_SOURCE,
+        paint: {
+          'circle-radius': 3.5,
+          'circle-color': '#1B7A4E',
+          'circle-opacity': 0.85,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#ffffff',
         },
       })
 
@@ -218,6 +267,14 @@ function emptyPoint(): PointFeature {
   }
 }
 
+function emptyMultiPoint(): MultiPointFeature {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'MultiPoint', coordinates: [] },
+  }
+}
+
 function createPulseMarkerElement(): HTMLDivElement {
   const el = document.createElement('div')
   el.className = 'live-location-marker'
@@ -256,7 +313,11 @@ function updateGeometry(
   liveMarker: boolean,
 ) {
   const routeSource = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined
-  if (!routeSource) return
+  const previewSource = map.getSource(PREVIEW_SOURCE) as maplibregl.GeoJSONSource | undefined
+  const breadcrumbSource = map.getSource(BREADCRUMB_SOURCE) as
+    | maplibregl.GeoJSONSource
+    | undefined
+  if (!routeSource || !previewSource || !breadcrumbSource) return
 
   const coordinates = points.map(
     (p) => [p.longitude, p.latitude] as [number, number],
@@ -268,6 +329,34 @@ function updateGeometry(
     geometry: {
       type: 'LineString',
       coordinates: coordinates.length >= 2 ? coordinates : [],
+    },
+  })
+
+  breadcrumbSource.setData({
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'MultiPoint',
+      coordinates,
+    },
+  })
+
+  // Temporary visual segment from last accepted point → live fix.
+  // Does not affect saved distance / exported route.
+  let previewCoords: [number, number][] = []
+  if (liveMarker && liveFix && coordinates.length >= 1) {
+    const last = coordinates[coordinates.length - 1]
+    const live: [number, number] = [liveFix.longitude, liveFix.latitude]
+    const moved =
+      Math.abs(last[0] - live[0]) > 1e-7 || Math.abs(last[1] - live[1]) > 1e-7
+    if (moved) previewCoords = [last, live]
+  }
+  previewSource.setData({
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: previewCoords,
     },
   })
 

@@ -8,6 +8,8 @@ import {
 } from './format'
 import {
   averagePaceSecPerKm,
+  discountedDistanceMeters,
+  dynamicMinDistanceMeters,
   filterGpsPoint,
   haversineMeters,
   type FilterResult,
@@ -40,12 +42,42 @@ const poor: FilterResult = filterGpsPoint(
 )
 assert(poor.accept === false && poor.reason === 'accuracy', 'should reject poor accuracy')
 
+const tooSoon = filterGpsPoint(
+  a,
+  point({ latitude: 0.0002, longitude: 0, timestamp: 400 }),
+)
+assert(tooSoon.accept === false && tooSoon.reason === 'interval', 'should reject rapid updates')
+
+const jitter = filterGpsPoint(
+  a,
+  point({ latitude: 0.00001, longitude: 0, timestamp: 2000, accuracy: 15 }),
+)
+assert(jitter.accept === false && jitter.reason === 'jitter', 'should reject accuracy-scale jitter')
+
 const afterPause = filterGpsPoint(
   a,
   point({ latitude: 0.01, longitude: 0, timestamp: 60_000 }),
   { segmentBreak: true },
 )
 assert(afterPause.accept && afterPause.distanceDelta === 0, 'pause gap must not add distance')
+
+const goodMove = filterGpsPoint(
+  a,
+  point({ latitude: 0.0002, longitude: 0, timestamp: 5_000, accuracy: 8 }),
+)
+assert(goodMove.accept === true, 'should accept clear movement')
+if (goodMove.accept) {
+  const raw = haversineMeters(0, 0, 0.0002, 0)
+  assert(
+    goodMove.distanceDelta < raw,
+    'accepted distance should apply accuracy discount',
+  )
+  assert(goodMove.distanceDelta > 0, 'accepted distance must be positive')
+}
+
+assert(dynamicMinDistanceMeters(10, 10) >= 3, 'min distance floor')
+assert(dynamicMinDistanceMeters(40, 40) > dynamicMinDistanceMeters(8, 8), 'worse accuracy raises min move')
+assert(discountedDistanceMeters(20, 10, 10) < 20, 'discount reduces counted meters')
 
 assert(formatDistanceKm(5240) === '5.24 km', 'distance format')
 assert(formatDuration(29 * 60_000 + 42_000) === '29:42', 'duration mm:ss')

@@ -165,7 +165,9 @@ export function RunCard({ summary }: RunCardProps) {
           <p className="run-card-title">{title}</p>
           <p className="run-card-distance">
             <span className="run-card-distance-num">{distance}</span>
-            <span className="run-card-distance-unit">KM</span>
+            <span className="run-card-distance-unit" aria-hidden="true">
+              KM
+            </span>
           </p>
 
           <div className="run-card-map-frame">
