@@ -14,6 +14,11 @@ import {
   haversineMeters,
   type FilterResult,
 } from './gps'
+import {
+  createSimulatedPosition,
+  simulateWalkPathLengthMeters,
+  simulateWalkPointCount,
+} from './simulateWalk'
 import type { GpsPoint } from '../types/run'
 
 function assert(condition: boolean, message: string) {
@@ -78,6 +83,13 @@ if (goodMove.accept) {
 assert(dynamicMinDistanceMeters(10, 10) >= 3, 'min distance floor')
 assert(dynamicMinDistanceMeters(40, 40) > dynamicMinDistanceMeters(8, 8), 'worse accuracy raises min move')
 assert(discountedDistanceMeters(20, 10, 10) < 20, 'discount reduces counted meters')
+
+const simLen = simulateWalkPathLengthMeters()
+assert(simLen > 400 && simLen < 600, `sim path should be ~450m, got ${simLen}`)
+assert(simulateWalkPointCount() > 20, 'sim path should have many points')
+const simPos = createSimulatedPosition(0)
+assert(simPos.coords.accuracy <= 40, 'sim accuracy should pass filter')
+assert(typeof simPos.coords.latitude === 'number', 'sim lat')
 
 assert(formatDistanceKm(5240) === '5.24 km', 'distance format')
 assert(formatDuration(29 * 60_000 + 42_000) === '29:42', 'duration mm:ss')

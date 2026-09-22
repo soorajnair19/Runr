@@ -32,6 +32,14 @@ Use this checklist on a real phone against the deployed HTTPS URL.
 
 **Do not claim native-app background tracking.** Document actual device results above after field testing.
 
+## Laptop walk simulation (desktop only)
+
+On a laptop (`npm run dev`), the ready screen shows **SIMULATE WALK (LAPTOP)**. It feeds a synthetic ~0.45 km loop through the real GPS filter/map/card pipeline — no phone GPS required.
+
+- Hidden on phones/tablets (UA + fine pointer / hover check).
+- Use it to verify live trail, pause/resume, finish, and download card.
+- Do **not** use it to validate distance accuracy vs Nike Run Club.
+
 ## Distance accuracy comparison (vs Nike Run Club / Strava)
 
 Browser GPS is noisier than native apps. After filter changes, validate outdoors:

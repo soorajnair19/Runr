@@ -119,9 +119,9 @@ export function MapView({
           'line-cap': 'round',
         },
         paint: {
-          'line-color': '#1B7A4E',
-          'line-width': 4.5,
-          'line-opacity': 0.95,
+          'line-color': '#0E5C38',
+          'line-width': 5,
+          'line-opacity': 1,
         },
       })
 
@@ -323,12 +323,24 @@ function updateGeometry(
     (p) => [p.longitude, p.latitude] as [number, number],
   )
 
+  // Live mode: always extend the drawn trail to the pulse marker tip.
+  const drawCoords: [number, number][] = [...coordinates]
+  if (liveMarker && liveFix) {
+    const live: [number, number] = [liveFix.longitude, liveFix.latitude]
+    const last = drawCoords[drawCoords.length - 1]
+    const differs =
+      !last ||
+      Math.abs(last[0] - live[0]) > 1e-7 ||
+      Math.abs(last[1] - live[1]) > 1e-7
+    if (differs) drawCoords.push(live)
+  }
+
   routeSource.setData({
     type: 'Feature',
     properties: {},
     geometry: {
       type: 'LineString',
-      coordinates: coordinates.length >= 2 ? coordinates : [],
+      coordinates: drawCoords.length >= 2 ? drawCoords : [],
     },
   })
 
@@ -337,28 +349,12 @@ function updateGeometry(
     properties: {},
     geometry: {
       type: 'MultiPoint',
-      coordinates,
+      coordinates: drawCoords,
     },
   })
 
-  // Temporary visual segment from last accepted point → live fix.
-  // Does not affect saved distance / exported route.
-  let previewCoords: [number, number][] = []
-  if (liveMarker && liveFix && coordinates.length >= 1) {
-    const last = coordinates[coordinates.length - 1]
-    const live: [number, number] = [liveFix.longitude, liveFix.latitude]
-    const moved =
-      Math.abs(last[0] - live[0]) > 1e-7 || Math.abs(last[1] - live[1]) > 1e-7
-    if (moved) previewCoords = [last, live]
-  }
-  previewSource.setData({
-    type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'LineString',
-      coordinates: previewCoords,
-    },
-  })
+  // Preview layer unused when trail already extends to liveFix — clear it.
+  previewSource.setData(emptyLine())
 
   if (liveMarker) {
     if (liveFix) {

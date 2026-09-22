@@ -2,7 +2,6 @@ import type { GpsPoint } from '../types/run'
 import {
   formatDistanceNumber,
   formatDuration,
-  formatPace,
 } from '../lib/format'
 import { MapViewLazy as MapView } from '../components/MapViewLazy'
 
@@ -10,11 +9,12 @@ interface LiveRunScreenProps {
   status: 'STARTING' | 'RUNNING' | 'PAUSED'
   distanceMeters: number
   elapsedMs: number
-  pace: number | null
   points: GpsPoint[]
+  trailPoints?: GpsPoint[]
   liveFix: GpsPoint | null
   waitingForGps: boolean
   accuracyWarning: boolean
+  simulated?: boolean
   onPause: () => void
   onResume: () => void
   onFinish: () => void
@@ -24,23 +24,33 @@ export function LiveRunScreen({
   status,
   distanceMeters,
   elapsedMs,
-  pace,
   points,
+  trailPoints = [],
   liveFix,
   waitingForGps,
   accuracyWarning,
+  simulated = false,
   onPause,
   onResume,
   onFinish,
 }: LiveRunScreenProps) {
   const paused = status === 'PAUSED'
   const starting = status === 'STARTING'
+  const mapPoints = trailPoints.length > 0 ? trailPoints : points
 
   return (
     <section className={`screen live-screen ${paused ? 'is-paused' : ''}`}>
       <header className="live-header">
         <p className="live-status" aria-live="polite">
-          {paused ? 'PAUSED' : starting ? 'WAITING FOR GPS…' : 'LIVE RUN'}
+          {paused
+            ? 'PAUSED'
+            : starting
+              ? simulated
+                ? 'STARTING SIM…'
+                : 'WAITING FOR GPS…'
+              : simulated
+                ? 'SIMULATED WALK'
+                : 'LIVE RUN'}
         </p>
       </header>
 
@@ -48,9 +58,6 @@ export function LiveRunScreen({
         <div className="metric metric-distance">
           <span className="metric-value">{formatDistanceNumber(distanceMeters)}</span>
           <span className="metric-unit">KM</span>
-        </div>
-        <div className="metric metric-pace">
-          <span className="metric-value metric-value-md">{formatPace(pace)}</span>
         </div>
         <div className="metric metric-duration">
           <span className="metric-value metric-value-sm">{formatDuration(elapsedMs)}</span>
@@ -60,14 +67,16 @@ export function LiveRunScreen({
       {(waitingForGps || accuracyWarning) && (
         <p className="live-hint" role="status">
           {waitingForGps
-            ? 'Waiting for GPS…'
+            ? simulated
+              ? 'Starting simulation…'
+              : 'Waiting for GPS…'
             : 'GPS accuracy is currently low.'}
         </p>
       )}
 
       <div className="live-map-wrap">
         <MapView
-          points={points}
+          points={mapPoints}
           liveFix={liveFix}
           liveMarker
           follow={!paused}

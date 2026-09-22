@@ -11,7 +11,7 @@ export default function App() {
   const [summary, setSummary] = useState<RunSummary | null>(null)
   const [confirmFinish, setConfirmFinish] = useState(false)
 
-  const { session, pace } = tracker
+  const { session } = tracker
 
   function handleFinishRequest() {
     setConfirmFinish(true)
@@ -31,7 +31,10 @@ export default function App() {
   return (
     <div className="app-shell">
       {session.status === 'READY' && (
-        <ReadyScreen onStart={tracker.startRun} />
+        <ReadyScreen
+          onStart={tracker.startRun}
+          onSimulateWalk={tracker.startSimulatedRun}
+        />
       )}
 
       {(session.status === 'STARTING' ||
@@ -41,11 +44,12 @@ export default function App() {
           status={session.status}
           distanceMeters={session.distanceMeters}
           elapsedMs={session.elapsedMs}
-          pace={pace}
           points={session.gpsPoints}
+          trailPoints={session.trailPoints}
           liveFix={session.liveFix}
           waitingForGps={session.waitingForGps}
           accuracyWarning={session.accuracyWarning}
+          simulated={session.simulated}
           onPause={tracker.pauseRun}
           onResume={tracker.resumeRun}
           onFinish={handleFinishRequest}

@@ -5,8 +5,14 @@ import {
   filterGpsPoint,
   geolocationErrorKind,
   geolocationErrorMessage,
+  haversineMeters,
   positionToGpsPoint,
 } from '../lib/gps'
+import {
+  SIM_TICK_MS,
+  createSimulatedPosition,
+  simulateWalkPointCount,
+} from '../lib/simulateWalk'
 import type {
   GpsErrorKind,
   GpsPoint,
@@ -22,11 +28,13 @@ const initialSession = (): RunSession => ({
   elapsedMs: 0,
   distanceMeters: 0,
   gpsPoints: [],
+  trailPoints: [],
   liveFix: null,
   errorKind: null,
   errorMessage: null,
   accuracyWarning: false,
   waitingForGps: false,
+  simulated: false,
 })
 
 export function useRunTracker() {
@@ -34,6 +42,9 @@ export function useRunTracker() {
   const [tick, setTick] = useState(0)
 
   const watchIdRef = useRef<number | null>(null)
+  const simTimerRef = useRef<number | null>(null)
+  const simIndexRef = useRef(0)
+  const simulatedRef = useRef(false)
   const statusRef = useRef<RunStatus>('READY')
   const segmentBreakRef = useRef(false)
   const lastAcceptedRef = useRef<GpsPoint | null>(null)
@@ -41,10 +52,40 @@ export function useRunTracker() {
   const segmentStartedAtRef = useRef<number | null>(null)
   const distanceRef = useRef(0)
   const pointsRef = useRef<GpsPoint[]>([])
+  const trailRef = useRef<GpsPoint[]>([])
   const startTimeRef = useRef<number | null>(null)
 
   const syncStatus = useCallback((status: RunStatus) => {
     statusRef.current = status
+  }, [])
+
+  /** Append to the on-map trail when the live fix has moved enough (visual only). */
+  const appendTrailPoint = useCallback((point: GpsPoint) => {
+    const last = trailRef.current[trailRef.current.length - 1]
+    if (!last) {
+      trailRef.current = [point]
+      return
+    }
+    const moved = haversineMeters(
+      last.latitude,
+      last.longitude,
+      point.latitude,
+      point.longitude,
+    )
+    // Dense enough to look continuous while walking; independent of distance filter.
+    if (moved >= 2) {
+      trailRef.current = [...trailRef.current, point]
+    } else {
+      // Keep tip glued to the latest fix so the line reaches the pulse marker.
+      trailRef.current = [...trailRef.current.slice(0, -1), point]
+    }
+  }, [])
+
+  const clearSimulation = useCallback(() => {
+    if (simTimerRef.current !== null) {
+      window.clearInterval(simTimerRef.current)
+      simTimerRef.current = null
+    }
   }, [])
 
   const clearWatch = useCallback(() => {
@@ -52,7 +93,8 @@ export function useRunTracker() {
       navigator.geolocation.clearWatch(watchIdRef.current)
       watchIdRef.current = null
     }
-  }, [])
+    clearSimulation()
+  }, [clearSimulation])
 
   const getActiveElapsedMs = useCallback(() => {
     let total = accumulatedMsRef.current
@@ -71,6 +113,7 @@ export function useRunTracker() {
         elapsedMs: getActiveElapsedMs(),
         distanceMeters: distanceRef.current,
         gpsPoints: [...pointsRef.current],
+        trailPoints: [...trailRef.current],
       }))
     },
     [getActiveElapsedMs, syncStatus],
@@ -84,8 +127,13 @@ export function useRunTracker() {
       const point = positionToGpsPoint(position)
       const poorAccuracy = point.accuracy > GPS_CONFIG.maxAccuracyMeters
 
-      // Update live marker for any accurate fix, even if route rejects it as jitter.
-      const liveFixPatch = poorAccuracy ? {} : { liveFix: point }
+      // Live marker + visual trail for any accurate fix (even if distance rejects it).
+      if (!poorAccuracy) {
+        appendTrailPoint(point)
+      }
+      const liveFixPatch = poorAccuracy
+        ? {}
+        : { liveFix: point, trailPoints: [...trailRef.current] }
 
       const result = filterGpsPoint(lastAcceptedRef.current, point, {
         segmentBreak: segmentBreakRef.current,
@@ -134,7 +182,7 @@ export function useRunTracker() {
         accuracyWarning: poorAccuracy,
       })
     },
-    [pushSession],
+    [appendTrailPoint, pushSession],
   )
 
   const handleError = useCallback(
@@ -162,6 +210,28 @@ export function useRunTracker() {
     [clearWatch, pushSession],
   )
 
+  const startSimulation = useCallback(() => {
+    clearWatch()
+    const pathLen = simulateWalkPointCount()
+
+    const tickSim = () => {
+      if (statusRef.current !== 'RUNNING' && statusRef.current !== 'STARTING') {
+        return
+      }
+      if (simIndexRef.current >= pathLen) {
+        clearSimulation()
+        return
+      }
+      const position = createSimulatedPosition(simIndexRef.current)
+      simIndexRef.current += 1
+      handlePosition(position)
+    }
+
+    // Emit first fix immediately so STARTING → RUNNING without waiting a tick.
+    tickSim()
+    simTimerRef.current = window.setInterval(tickSim, SIM_TICK_MS)
+  }, [clearSimulation, clearWatch, handlePosition])
+
   const startWatch = useCallback(() => {
     clearWatch()
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -175,6 +245,18 @@ export function useRunTracker() {
     )
   }, [clearWatch, handleError, handlePosition])
 
+  const resetTrackingRefs = useCallback(() => {
+    accumulatedMsRef.current = 0
+    segmentStartedAtRef.current = null
+    distanceRef.current = 0
+    pointsRef.current = []
+    trailRef.current = []
+    lastAcceptedRef.current = null
+    segmentBreakRef.current = false
+    startTimeRef.current = null
+    simIndexRef.current = 0
+  }, [])
+
   const startRun = useCallback(() => {
     if (!('geolocation' in navigator)) {
       const kind: GpsErrorKind = 'unsupported'
@@ -186,14 +268,8 @@ export function useRunTracker() {
       return
     }
 
-    // Reset run state
-    accumulatedMsRef.current = 0
-    segmentStartedAtRef.current = null
-    distanceRef.current = 0
-    pointsRef.current = []
-    lastAcceptedRef.current = null
-    segmentBreakRef.current = false
-    startTimeRef.current = null
+    simulatedRef.current = false
+    resetTrackingRefs()
 
     pushSession({
       status: 'STARTING',
@@ -202,15 +278,41 @@ export function useRunTracker() {
       elapsedMs: 0,
       distanceMeters: 0,
       gpsPoints: [],
+      trailPoints: [],
       liveFix: null,
       errorKind: null,
       errorMessage: null,
       accuracyWarning: false,
       waitingForGps: true,
+      simulated: false,
     })
 
     startWatch()
-  }, [pushSession, startWatch])
+  }, [pushSession, resetTrackingRefs, startWatch])
+
+  /** Laptop-only: feed a synthetic ~0.45 km loop through the real GPS pipeline. */
+  const startSimulatedRun = useCallback(() => {
+    simulatedRef.current = true
+    resetTrackingRefs()
+
+    pushSession({
+      status: 'STARTING',
+      startTime: null,
+      endTime: null,
+      elapsedMs: 0,
+      distanceMeters: 0,
+      gpsPoints: [],
+      trailPoints: [],
+      liveFix: null,
+      errorKind: null,
+      errorMessage: null,
+      accuracyWarning: false,
+      waitingForGps: true,
+      simulated: true,
+    })
+
+    startSimulation()
+  }, [pushSession, resetTrackingRefs, startSimulation])
 
   const pauseRun = useCallback(() => {
     if (statusRef.current !== 'RUNNING') return
@@ -227,8 +329,12 @@ export function useRunTracker() {
     segmentBreakRef.current = true
     segmentStartedAtRef.current = Date.now()
     pushSession({ status: 'RUNNING', waitingForGps: true })
-    startWatch()
-  }, [pushSession, startWatch])
+    if (simulatedRef.current) {
+      startSimulation()
+    } else {
+      startWatch()
+    }
+  }, [pushSession, startSimulation, startWatch])
 
   const finishRun = useCallback((): RunSummary | null => {
     const status = statusRef.current
@@ -267,16 +373,11 @@ export function useRunTracker() {
 
   const resetRun = useCallback(() => {
     clearWatch()
-    accumulatedMsRef.current = 0
-    segmentStartedAtRef.current = null
-    distanceRef.current = 0
-    pointsRef.current = []
-    lastAcceptedRef.current = null
-    segmentBreakRef.current = false
-    startTimeRef.current = null
+    simulatedRef.current = false
+    resetTrackingRefs()
     syncStatus('READY')
     setSession(initialSession())
-  }, [clearWatch, syncStatus])
+  }, [clearWatch, resetTrackingRefs, syncStatus])
 
   // Live timer tick while running
   useEffect(() => {
@@ -307,6 +408,7 @@ export function useRunTracker() {
     session: { ...session, elapsedMs },
     pace,
     startRun,
+    startSimulatedRun,
     pauseRun,
     resumeRun,
     finishRun,
