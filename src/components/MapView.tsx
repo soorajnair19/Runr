@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import * as maplibregl from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
 import type { GpsPoint } from '../types/run'
 
 const ROUTE_SOURCE = 'run-route'
@@ -83,7 +82,7 @@ export function MapView({
       'bottom-right',
     )
 
-    map.on('load', () => {
+    map.on('style.load', () => {
       map.addSource(ROUTE_SOURCE, {
         type: 'geojson',
         data: emptyLine(),
@@ -135,12 +134,18 @@ export function MapView({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !readyRef.current) return
+    if (!map) return
 
     const shouldFit =
       points.length === 1 ||
       points.length - lastFitCountRef.current >= 8 ||
       (!follow && points.length !== lastFitCountRef.current)
+
+    if (!readyRef.current) {
+      recenterMap(map, points, follow, fitPadding, shouldFit)
+      if (shouldFit) lastFitCountRef.current = points.length
+      return
+    }
 
     updateGeometry(map, points, follow, fitPadding, shouldFit)
     if (shouldFit) lastFitCountRef.current = points.length
@@ -208,10 +213,24 @@ function updateGeometry(
     geometry: { type: 'Point', coordinates: last },
   })
 
+  recenterMap(map, points, follow, fitPadding, fit)
+}
+
+function recenterMap(
+  map: maplibregl.Map,
+  points: GpsPoint[],
+  follow: boolean,
+  fitPadding: number,
+  fit: boolean,
+) {
+  const coordinates = points.map(
+    (p) => [p.longitude, p.latitude] as [number, number],
+  )
+  if (coordinates.length === 0) return
+  const last = coordinates[coordinates.length - 1]
+
   if (!fit) {
-    if (follow) {
-      map.easeTo({ center: last, duration: 300 })
-    }
+    if (follow) map.easeTo({ center: last, duration: 300 })
     return
   }
 
