@@ -6,7 +6,7 @@ export function ReadyScreen({ onStart }: ReadyScreenProps) {
   return (
     <section className="screen ready-screen">
       <div className="ready-hero">
-        <h1 className="brand">SimplRun</h1>
+        <h1 className="brand">Runr</h1>
         <p className="ready-tagline">
           Track your run with GPS.
           <br />

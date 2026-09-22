@@ -1,4 +1,4 @@
-# SimplRun
+# Runr
 
 Lightweight mobile-first GPS running tracker. No account, no database, no backend — open, run, finish, download a shareable run card.
 

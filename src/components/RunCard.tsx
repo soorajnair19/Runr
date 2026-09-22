@@ -67,7 +67,7 @@ export function RunCard({ summary }: RunCardProps) {
       setPreviewUrl(dataUrl)
 
       const link = document.createElement('a')
-      link.download = `simplrun-${Date.now()}.png`
+      link.download = `runr-${Date.now()}.png`
       link.href = dataUrl
       link.click()
 
@@ -116,7 +116,7 @@ export function RunCard({ summary }: RunCardProps) {
           <p className="run-card-meta">
             {date} · {time}
           </p>
-          <p className="run-card-brand">SIMPLRUN</p>
+          <p className="run-card-brand">RUNR</p>
         </div>
       </div>
 

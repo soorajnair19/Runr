@@ -6,7 +6,7 @@ interface ErrorScreenProps {
 export function ErrorScreen({ message, onRetry }: ErrorScreenProps) {
   return (
     <section className="screen error-screen">
-      <h1 className="brand brand-sm">SimplRun</h1>
+      <h1 className="brand brand-sm">Runr</h1>
       <p className="error-message" role="alert">
         {message}
       </p>

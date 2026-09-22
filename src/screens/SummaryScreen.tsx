@@ -20,7 +20,7 @@ export function SummaryScreen({ summary, onNewRun }: SummaryScreenProps) {
     return (
       <section className="screen summary-screen">
         <div className="summary-short">
-          <h1 className="brand brand-sm">SimplRun</h1>
+          <h1 className="brand brand-sm">Runr</h1>
           <p className="summary-short-msg">
             Run too short to calculate meaningful stats.
           </p>
